@@ -1,0 +1,23 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DocumentsEtSauvegardes",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      "Resource": [
+        "arn:aws:s3:::copro-4moscou-documents/documents/*",
+        "arn:aws:s3:::copro-4moscou-documents/sauvegardes/*"
+      ]
+    },
+    {
+      "Sid": "EmailsDeConnexion",
+      "Effect": "Allow",
+      "Action": ["ses:SendEmail"],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": { "ses:FromAddress": "ne-pas-repondre@4ruedemoscou.fr" }
+      }
+    }
+  ]
+}

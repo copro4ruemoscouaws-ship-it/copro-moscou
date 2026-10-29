@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.title }}{% endblock %}
+{% block content %}
+<a class="crumb" href="{{ url_for('documents') }}">← Documents</a>
+<div class="head">
+  <div>
+    <h1>{{ doc.title }}</h1>
+    <div class="meta">{{ doc.category }} · {{ doc.filename }} · {{ doc.size|size_fr }}</div>
+  </div>
+  <div class="actions" style="margin:0">
+    <a class="btn" href="{{ url_for('document_file', doc_id=doc.id) }}" target="_blank" rel="noopener">Ouvrir</a>
+    <a class="btn ghost" href="{{ url_for('document_file', doc_id=doc.id, dl=1) }}">Télécharger</a>
+  </div>
+</div>
+
+<div class="grid">
+  <div>
+    <form class="panel" method="post">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <h2>Informations</h2>
+      <div class="field">
+        <label for="title">Titre</label>
+        <input id="title" type="text" name="title" value="{{ doc.title }}" required>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="category">Catégorie</label>
+          <select id="category" name="category">
+            {% for c in categories %}<option {{ 'selected' if c == doc.category }}>{{ c }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="doc_date">Date du document</label>
+          <input id="doc_date" type="date" name="doc_date" value="{{ doc.doc_date or '' }}">
+        </div>
+      </div>
+      <div class="field">
+        <label>Chantiers liés</label>
+        {% if chantiers %}
+        <div class="checks">
+          {% for c in chantiers %}
+          <label><input type="checkbox" name="chantiers" value="{{ c.id }}" {{ 'checked' if c.id in linked }}>
+            <span>{{ c.title }} <span class="hint">· {{ c.status }}</span></span></label>
+          {% endfor %}
+        </div>
+        {% else %}<p class="empty">Aucun chantier. <a href="{{ url_for('chantier_new') }}">Créer un chantier</a></p>{% endif %}
+      </div>
+      <button class="btn" type="submit">Enregistrer</button>
+    </form>
+  </div>
+
+  <div>
+    <section class="panel">
+      <h2>Historique</h2>
+      <dl class="facts">
+        <dt>Déposé le</dt><dd>{{ doc.uploaded_at|date_fr }}</dd>
+        <dt>Par</dt><dd>{{ doc.auteur or '—' }}</dd>
+        <dt>Date du doc.</dt><dd>{{ doc.doc_date|date_fr }}</dd>
+        <dt>Recherche</dt><dd>{{ 'Titre et contenu' if doc.has_text else 'Titre uniquement' }}</dd>
+      </dl>
+    </section>
+    {% if apercu %}
+    <section class="panel">
+      <h2>Texte extrait <small>début du document</small></h2>
+      <div class="apercu">{{ apercu }}</div>
+    </section>
+    {% endif %}
+    {% if user.role == 'admin' %}
+    <form method="post" action="{{ url_for('document_delete', doc_id=doc.id) }}"
+          onsubmit="return confirm('Supprimer définitivement ce document ?')">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="btn danger small" type="submit">Supprimer le document</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

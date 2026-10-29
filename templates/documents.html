@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Documents{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>Documents</h1>
+  <a class="btn" href="{{ url_for('document_new', chantier=chantier or None) }}">Ajouter des documents</a>
+</div>
+
+<form method="get" role="search">
+  <div class="searchbar">
+    <input type="search" name="q" value="{{ q }}" placeholder="Mot-clé, nom d'entreprise, montant… (cherche aussi dans le contenu)" aria-label="Rechercher">
+    <button class="btn" type="submit">Rechercher</button>
+  </div>
+  <div class="filters">
+    <select name="categorie" onchange="this.form.submit()" aria-label="Catégorie">
+      <option value="">Toutes catégories</option>
+      {% for c in categories %}<option {{ 'selected' if c == cat }}>{{ c }}</option>{% endfor %}
+    </select>
+    <select name="chantier" onchange="this.form.submit()" aria-label="Chantier">
+      <option value="">Tous les chantiers</option>
+      {% for c in chantiers %}<option value="{{ c.id }}" {{ 'selected' if c.id|string == chantier }}>{{ c.title }}</option>{% endfor %}
+    </select>
+    {% if q or cat or chantier %}<a class="btn ghost small" href="{{ url_for('documents') }}">Effacer les filtres</a>{% endif %}
+  </div>
+</form>
+
+<section class="panel">
+  <div class="count">
+    {% if q %}{{ results|length }} résultat{{ 's' if results|length > 1 }} pour « {{ q }} »
+    {% else %}{{ results|length }} document{{ 's' if results|length > 1 }}{% endif %}
+  </div>
+  {% if results %}
+  <ul class="list">
+    {% for d in results %}
+    <li class="item">
+      <div class="ext">{{ d.filename.rsplit('.', 1)[-1]|upper if '.' in d.filename else 'DOC' }}</div>
+      <div class="main">
+        <a class="t" href="{{ url_for('document_detail', doc_id=d.id) }}">{% if d.titre_hl %}{{ d.titre_hl|hl }}{% else %}{{ d.title }}{% endif %}</a>
+        <div class="m">{{ d.category }} · {{ (d.doc_date or d.uploaded_at)|date_fr }}{% if d.auteur %} · déposé par {{ d.auteur }}{% endif %}{% if not d.has_text and d.filename.lower().endswith(('.pdf','.docx')) %} · contenu non lisible (scan){% endif %}</div>
+        {% if d.extrait and '[[' in d.extrait %}<div class="snip">{{ d.extrait|hl }}</div>{% endif %}
+        {% if links.get(d.id) %}
+        <div class="tags">
+          {% for c in links[d.id] %}<a class="tag chantier" href="{{ url_for('chantier_detail', cid=c.id) }}">{{ c.title }}</a>{% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% elif q %}
+    <p class="empty">Aucun document ne contient ces mots. Essayez un mot plus court (« chauff » trouve chauffage et chaufferie) ou retirez un filtre.</p>
+  {% else %}
+    <p class="empty">Aucun document. <a href="{{ url_for('document_new') }}">Déposez les premiers fichiers</a> : PV d'AG, devis, contrats…</p>
+  {% endif %}
+</section>
+{% endblock %}

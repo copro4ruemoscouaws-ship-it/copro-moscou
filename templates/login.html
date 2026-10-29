@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Connexion{% endblock %}
+{% block mainclass %}login-main{% endblock %}
+{% block content %}
+<div class="login-wrap">
+  <div class="login">
+    <div class="door">4</div>
+    <h1>Rue de Moscou</h1>
+    {% if sent %}
+      <p>Si cette adresse fait partie du conseil syndical, un email vient de lui être envoyé. <strong>Cliquez sur le lien</strong> qu'il contient, ou <strong>saisissez le code à 6 chiffres</strong> ci-dessous. Valable 15 minutes.</p>
+      {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+      <form method="post" action="{{ url_for('login_code') }}">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="email" value="{{ email }}">
+        <input type="hidden" name="next" value="{{ nxt }}">
+        <div class="field">
+          <label for="code">Code reçu par email</label>
+          <input id="code" class="code-input" type="text" name="code" inputmode="numeric" pattern="[0-9 ]*"
+                 autocomplete="one-time-code" maxlength="7" placeholder="000000" required autofocus>
+        </div>
+        <button class="btn" type="submit" style="width:100%;justify-content:center">Se connecter</button>
+      </form>
+      <p class="login-alt">Pas d'email ? Regardez dans les spams, ou <a href="{{ url_for('login', next=nxt or None) }}">recommencez avec une autre adresse</a>.</p>
+      {% if dev %}
+        <div class="devlink"><strong>Mode test</strong> — l'email n'est pas réellement envoyé.<br>
+          Code : <strong>{{ dev.code }}</strong><br>
+          Lien : <a href="{{ dev.link }}">{{ dev.link }}</a></div>
+      {% endif %}
+    {% else %}
+      <p>Espace réservé au conseil syndical. Saisissez votre adresse email : vous recevrez un lien et un code pour vous connecter, sans mot de passe.</p>
+      {% with msgs = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in msgs %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
+      {% endwith %}
+      <form method="post" action="{{ url_for('login', next=nxt or None) }}">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <div class="field">
+          <label for="email">Adresse email</label>
+          <input id="email" type="email" name="email" required autocomplete="email" autocapitalize="off" autofocus>
+        </div>
+        <button class="btn" type="submit" style="width:100%;justify-content:center">Recevoir mon lien de connexion</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

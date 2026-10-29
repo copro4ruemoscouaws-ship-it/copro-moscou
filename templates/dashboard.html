@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Tableau de bord{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>Bonjour {{ user.name.split()[0] }}</h1>
+  <div class="actions" style="margin:0">
+    <a class="btn ghost" href="{{ url_for('chantier_new') }}">Nouveau chantier</a>
+    <a class="btn" href="{{ url_for('document_new') }}">Ajouter des documents</a>
+  </div>
+</div>
+
+<form class="searchbar" action="{{ url_for('documents') }}" method="get" role="search">
+  <input type="search" name="q" placeholder="Chercher dans les documents…" aria-label="Rechercher">
+  <button class="btn" type="submit">Rechercher</button>
+</form>
+
+<div class="pipeline">
+  {% for s in STATUSES %}
+  <a class="s-{{ s|status_slug }}" href="{{ url_for('chantiers') }}#{{ s|status_slug }}">
+    <div class="n">{{ counts[s] }}</div><div class="l">{{ s }}</div>
+  </a>
+  {% endfor %}
+</div>
+
+<div class="grid">
+  <div>
+    <section class="panel">
+      <h2>Chantiers en cours et à venir</h2>
+      {% if actifs %}
+      <ul class="list">
+        {% for c in actifs %}
+        <li class="item">
+          <div class="main">
+            <a class="t" href="{{ url_for('chantier_detail', cid=c.id) }}">{{ c.title }}</a>
+            <div class="m">{{ c.category }}{% if c.responsable %} · suivi par {{ c.responsable }}{% endif %}{% if c.date_echeance %} · échéance {{ c.date_echeance|date_fr }}{% endif %} · {{ c.nb_docs }} doc.</div>
+            {% if c.budget_prevu and (c.status == 'Idée' or c.budget_engage is none) %}
+              <div class="m" style="margin-top:6px">Budget estimé : {{ c.budget_prevu|euros }}</div>
+            {% elif c.budget_prevu %}
+              {% set pct = ((c.budget_engage or 0) / c.budget_prevu * 100)|round|int %}
+              <div class="m" style="margin-top:6px">{{ c.budget_engage|euros }} engagés sur {{ c.budget_prevu|euros }}</div>
+              <div class="bar {{ 'over' if pct > 100 }}"><span style="width:{{ [pct,100]|min }}%"></span></div>
+            {% endif %}
+          </div>
+          <span class="pill s-{{ c.status|status_slug }}">{{ c.status }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+        <p class="empty">Aucun chantier ouvert. <a href="{{ url_for('chantier_new') }}">Créer le premier chantier</a></p>
+      {% endif %}
+    </section>
+  </div>
+
+  <div>
+    <section class="panel">
+      <h2>Budget des chantiers <small>hors idées</small></h2>
+      <div class="money">
+        <div><div class="v">{{ budget.prevu|euros }}</div><div class="k">prévu</div></div>
+        <div><div class="v">{{ budget.engage|euros }}</div><div class="k">engagé</div></div>
+      </div>
+      {% if budget.prevu %}
+        {% set p = (budget.engage / budget.prevu * 100)|round|int %}
+        <div class="bar {{ 'over' if p > 100 }}"><span style="width:{{ [p,100]|min }}%"></span></div>
+        <div class="m" style="font-size:12.5px;color:var(--muted);margin-top:5px">{{ p }} % du budget prévu est engagé</div>
+      {% endif %}
+    </section>
+
+    <section class="panel">
+      <h2>Prochaines échéances</h2>
+      {% if echeances %}
+      <ul class="list">
+        {% for e in echeances %}
+        <li class="item">
+          <div class="main">
+            <a class="t" href="{{ url_for('chantier_detail', cid=e.id) }}">{{ e.title }}</a>
+            <div class="m" {% if e.date_echeance < today %}style="color:var(--bad)"{% endif %}>
+              {{ e.date_echeance|date_fr }}{% if e.date_echeance < today %} · dépassée{% endif %}</div>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="empty">Aucune échéance renseignée.</p>{% endif %}
+    </section>
+
+    <section class="panel">
+      <h2>Derniers documents</h2>
+      {% if recents %}
+      <ul class="list">
+        {% for d in recents %}
+        <li class="item">
+          <div class="main">
+            <a class="t" href="{{ url_for('document_detail', doc_id=d.id) }}">{{ d.title }}</a>
+            <div class="m">{{ d.category }} · {{ d.uploaded_at|date_fr }}{% if d.auteur %} · {{ d.auteur }}{% endif %}</div>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="empty">Aucun document pour l'instant.</p>{% endif %}
+    </section>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,21 @@
+[Unit]
+Description=Espace copropriété 4 rue de Moscou
+After=network.target
+
+[Service]
+User=copro
+Group=copro
+WorkingDirectory=/srv/copro/app
+EnvironmentFile=/etc/copro.env
+ExecStart=/srv/copro/venv/bin/gunicorn --workers 2 --bind 127.0.0.1:8000 --timeout 120 app:app
+Restart=always
+RestartSec=3
+
+# Durcissement
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/srv/copro/data
+
+[Install]
+WantedBy=multi-user.target

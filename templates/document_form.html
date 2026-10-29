@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Ajouter des documents{% endblock %}
+{% block content %}
+<a class="crumb" href="{{ url_for('documents') }}">← Documents</a>
+<div class="head"><h1>Ajouter des documents</h1></div>
+
+<form class="panel" method="post" enctype="multipart/form-data">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <div class="field">
+    <span class="label">Fichiers</span>
+    <label class="drop" for="fichiers">
+      <input id="fichiers" type="file" name="fichiers" multiple required
+             accept=".pdf,.docx,.doc,.xlsx,.xls,.odt,.txt,.jpg,.jpeg,.png">
+      <span class="drop-title">Choisir des fichiers</span>
+      <span class="drop-sub">PDF, Word, Excel ou photo · plusieurs à la fois · 30 Mo max<br>Sur téléphone, vous pouvez aussi prendre une photo du document.</span>
+      <span class="drop-list" id="drop-list" aria-live="polite"></span>
+    </label>
+  </div>
+  <div class="field">
+    <label for="title">Titre <span class="hint">— facultatif, sinon le nom du fichier est utilisé</span></label>
+    <input id="title" type="text" name="title" placeholder="Ex. Devis ravalement — Entreprise Durand">
+  </div>
+  <div class="row2">
+    <div class="field">
+      <label for="category">Catégorie</label>
+      <select id="category" name="category">
+        {% for c in categories %}<option>{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="doc_date">Date du document <span class="hint">— facultatif</span></label>
+      <input id="doc_date" type="date" name="doc_date">
+    </div>
+  </div>
+  <div class="field">
+    <label>Lier à un ou plusieurs chantiers</label>
+    {% if chantiers %}
+    <div class="checks">
+      {% for c in chantiers %}
+      <label><input type="checkbox" name="chantiers" value="{{ c.id }}" {{ 'checked' if c.id == preselect }}>
+        <span>{{ c.title }} <span class="hint">· {{ c.status }}</span></span></label>
+      {% endfor %}
+    </div>
+    {% else %}<p class="empty">Aucun chantier créé pour l'instant — vous pourrez lier le document plus tard.</p>{% endif %}
+  </div>
+  <div class="actions">
+    <button class="btn" type="submit">Enregistrer</button>
+    <a class="btn ghost" href="{{ url_for('documents') }}">Annuler</a>
+  </div>
+  <p class="hint" style="margin-top:14px">Le texte des PDF et des fichiers Word est extrait automatiquement pour la recherche. Les PDF scannés et les photos ne sont recherchables que par leur titre : donnez-leur un titre clair.</p>
+</form>
+<script>
+  (function () {
+    var input = document.getElementById('fichiers');
+    var list = document.getElementById('drop-list');
+    var drop = input.closest('.drop');
+    function show() {
+      var names = Array.prototype.map.call(input.files, function (f) { return f.name; });
+      list.textContent = names.length ? names.length + ' fichier(s) : ' + names.join(', ') : '';
+      drop.classList.toggle('filled', names.length > 0);
+    }
+    input.addEventListener('change', show);
+    ['dragenter', 'dragover'].forEach(function (e) {
+      drop.addEventListener(e, function (ev) { ev.preventDefault(); drop.classList.add('over'); });
+    });
+    ['dragleave', 'drop'].forEach(function (e) {
+      drop.addEventListener(e, function () { drop.classList.remove('over'); });
+    });
+    drop.addEventListener('drop', function (ev) {
+      ev.preventDefault();
+      if (ev.dataTransfer && ev.dataTransfer.files.length) { input.files = ev.dataTransfer.files; show(); }
+    });
+  })();
+</script>
+{% endblock %}

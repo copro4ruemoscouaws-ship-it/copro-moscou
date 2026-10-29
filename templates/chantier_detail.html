@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}{{ c.title }}{% endblock %}
+{% block content %}
+<a class="crumb" href="{{ url_for('chantiers') }}">← Chantiers</a>
+<div class="head">
+  <div>
+    <h1>{{ c.title }}</h1>
+    <div class="meta">{{ c.category }} · <span class="pill s-{{ c.status|status_slug }}">{{ c.status }}</span></div>
+  </div>
+  <div class="actions" style="margin:0">
+    <a class="btn ghost" href="{{ url_for('chantier_edit', cid=c.id) }}">Modifier</a>
+    <a class="btn" href="{{ url_for('document_new', chantier=c.id) }}">Ajouter un document</a>
+  </div>
+</div>
+
+<div class="grid side-first">
+  <div>
+    <section class="panel">
+      <h2>Documents du chantier <small>{{ docs|length }}</small></h2>
+      {% if docs %}
+      <ul class="list">
+        {% for d in docs %}
+        <li class="item">
+          <div class="ext">{{ d.filename.rsplit('.', 1)[-1]|upper if '.' in d.filename else 'DOC' }}</div>
+          <div class="main">
+            <a class="t" href="{{ url_for('document_detail', doc_id=d.id) }}">{{ d.title }}</a>
+            <div class="m">{{ d.category }} · {{ (d.doc_date or d.uploaded_at)|date_fr }}</div>
+          </div>
+          <form method="post" action="{{ url_for('chantier_link', cid=c.id) }}" class="inline">
+            <input type="hidden" name="csrf" value="{{ csrf_token }}">
+            <input type="hidden" name="document_id" value="{{ d.id }}">
+            <input type="hidden" name="action" value="delier">
+            <button class="btn ghost small" type="submit" title="Retirer de ce chantier (le document est conservé)">Retirer</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="empty">Aucun document lié : devis, PV d'AG, factures, diagnostics…</p>{% endif %}
+
+      {% if autres %}
+      <form method="post" action="{{ url_for('chantier_link', cid=c.id) }}" style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <select name="document_id" aria-label="Document existant" style="flex:1;min-width:200px">
+          {% for d in autres %}<option value="{{ d.id }}">{{ d.title }} ({{ d.category }})</option>{% endfor %}
+        </select>
+        <button class="btn ghost" type="submit">Lier un document existant</button>
+      </form>
+      {% endif %}
+    </section>
+
+    {% if c.description %}
+    <section class="panel">
+      <h2>Notes de suivi</h2>
+      <div class="desc">{{ c.description }}</div>
+    </section>
+    {% endif %}
+  </div>
+
+  <div>
+    <section class="panel">
+      <h2>Budget</h2>
+      <div class="money">
+        <div><div class="v">{{ c.budget_prevu|euros }}</div><div class="k">prévu</div></div>
+        <div><div class="v">{{ c.budget_engage|euros }}</div><div class="k">engagé</div></div>
+      </div>
+      {% if c.budget_prevu %}
+        {% set p = ((c.budget_engage or 0) / c.budget_prevu * 100)|round|int %}
+        <div class="bar {{ 'over' if p > 100 }}"><span style="width:{{ [p,100]|min }}%"></span></div>
+        <div style="font-size:12.5px;color:{{ 'var(--bad)' if p > 100 else 'var(--muted)' }};margin-top:5px">
+          {{ p }} % engagé{% if p > 100 %} — dépassement de {{ (c.budget_engage - c.budget_prevu)|euros }}{% endif %}</div>
+      {% endif %}
+    </section>
+    <section class="panel">
+      <h2>Repères</h2>
+      <dl class="facts">
+        <dt>Suivi par</dt><dd>{{ c.responsable or '—' }}</dd>
+        <dt>Début</dt><dd>{{ c.date_debut|date_fr }}</dd>
+        <dt>Échéance</dt><dd>{{ c.date_echeance|date_fr }}</dd>
+        <dt>Mis à jour</dt><dd>{{ c.updated_at|date_fr }}</dd>
+      </dl>
+    </section>
+    {% if user.role == 'admin' %}
+    <form method="post" action="{{ url_for('chantier_delete', cid=c.id) }}"
+          onsubmit="return confirm('Supprimer ce chantier ? Les documents seront conservés.')">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="btn danger small" type="submit">Supprimer le chantier</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

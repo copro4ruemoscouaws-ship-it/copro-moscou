@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ titre }}{% endblock %}
+{% block content %}
+<section class="panel" style="max-width:560px">
+  <h2>{{ titre }}</h2>
+  <p>{{ message }}</p>
+  <a class="btn ghost" href="{{ url_for('dashboard') }}">Retour au tableau de bord</a>
+</section>
+{% endblock %}

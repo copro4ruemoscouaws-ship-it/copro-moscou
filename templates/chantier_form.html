@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Modifier' if c else 'Nouveau chantier' }}{% endblock %}
+{% block content %}
+<a class="crumb" href="{{ url_for('chantier_detail', cid=c.id) if c else url_for('chantiers') }}">← {{ c.title if c else 'Chantiers' }}</a>
+<div class="head"><h1>{{ 'Modifier le chantier' if c else 'Nouveau chantier' }}</h1></div>
+
+<form class="panel" method="post">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <div class="field">
+    <label for="title">Nom du chantier</label>
+    <input id="title" type="text" name="title" value="{{ c.title if c else '' }}" required
+           placeholder="Ex. Remplacement de la chaudière collective">
+  </div>
+  <div class="row2">
+    <div class="field">
+      <label for="category">Catégorie</label>
+      <select id="category" name="category">
+        {% for x in categories %}<option {{ 'selected' if c and c.category == x }}>{{ x }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="status">Étape</label>
+      <select id="status" name="status">
+        {% for s in STATUSES %}<option {{ 'selected' if c and c.status == s }}>{{ s }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="row2">
+    <div class="field">
+      <label for="budget_prevu">Budget prévu (€)</label>
+      <input id="budget_prevu" type="text" inputmode="decimal" name="budget_prevu"
+             value="{{ '%.0f'|format(c.budget_prevu) if c and c.budget_prevu is not none else '' }}" placeholder="Ex. 45000">
+    </div>
+    <div class="field">
+      <label for="budget_engage">Montant engagé (€) <span class="hint">— devis signés, factures</span></label>
+      <input id="budget_engage" type="text" inputmode="decimal" name="budget_engage"
+             value="{{ '%.0f'|format(c.budget_engage) if c and c.budget_engage is not none else '' }}">
+    </div>
+  </div>
+  <div class="row2">
+    <div class="field">
+      <label for="date_debut">Date de début</label>
+      <input id="date_debut" type="date" name="date_debut" value="{{ c.date_debut or '' if c else '' }}">
+    </div>
+    <div class="field">
+      <label for="date_echeance">Prochaine échéance <span class="hint">— AG, fin des travaux…</span></label>
+      <input id="date_echeance" type="date" name="date_echeance" value="{{ c.date_echeance or '' if c else '' }}">
+    </div>
+  </div>
+  <div class="field">
+    <label for="responsable_id">Suivi par</label>
+    <select id="responsable_id" name="responsable_id">
+      <option value="">— Personne —</option>
+      {% for m in membres %}<option value="{{ m.id }}" {{ 'selected' if c and c.responsable_id == m.id }}>{{ m.name }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="description">Description et notes de suivi</label>
+    <textarea id="description" name="description" placeholder="Contexte, décisions, points à vérifier…">{{ c.description or '' if c else '' }}</textarea>
+  </div>
+  <div class="actions">
+    <button class="btn" type="submit">{{ 'Enregistrer' if c else 'Créer le chantier' }}</button>
+    <a class="btn ghost" href="{{ url_for('chantier_detail', cid=c.id) if c else url_for('chantiers') }}">Annuler</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,17 @@
+# Données et secrets : ne jamais publier
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
+copro.env
+*.csv
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Système
+.DS_Store

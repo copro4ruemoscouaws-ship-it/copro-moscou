@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Membres{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>Membres du conseil syndical</h1>
+  <div class="meta">{{ users|selectattr('active')|list|length }} accès actifs</div>
+</div>
+
+<section class="panel">
+  <ul class="list members">
+    {% for u in users %}
+    <li class="member {{ '' if u.active else 'off' }}">
+      <span class="avatar">{{ u.name|initials }}</span>
+      <div class="main">
+        <div class="t">{{ u.name }}{% if u.id == user.id %} <span class="hint">· vous</span>{% endif %}</div>
+        <div class="m">{{ 'Administrateur' if u.role == 'admin' else 'Membre' }}{% if u.lot %} · {{ u.lot }}{% endif %}{% if not u.active %} · sans accès{% endif %}</div>
+        {% if user.role == 'admin' %}<div class="m email">{{ u.email }}</div>{% endif %}
+      </div>
+      {% if user.role == 'admin' and u.id != user.id %}
+      <form method="post" class="member-actions">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <input type="hidden" name="user_id" value="{{ u.id }}">
+        {% if u.active %}
+          <button class="btn ghost small" name="action" value="{{ 'membre' if u.role == 'admin' else 'admin' }}">{{ 'Retirer admin' if u.role == 'admin' else 'Rendre admin' }}</button>
+          <button class="btn danger small" name="action" value="desactiver" data-msg="Retirer l'accès de {{ u.name }} ?" onclick="return confirm(this.dataset.msg)">Retirer l'accès</button>
+        {% else %}
+          <button class="btn ghost small" name="action" value="reactiver">Rétablir l'accès</button>
+        {% endif %}
+      </form>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+{% if user.role == 'admin' %}
+<form class="panel" method="post">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <input type="hidden" name="action" value="ajouter">
+  <h2>Ajouter un membre</h2>
+  <div class="row2">
+    <div class="field"><label for="name">Nom</label><input id="name" type="text" name="name" required></div>
+    <div class="field"><label for="email">Email</label><input id="email" type="email" name="email" required></div>
+  </div>
+  <div class="row2">
+    <div class="field"><label for="lot">Lot / étage <span class="hint">— facultatif</span></label><input id="lot" type="text" name="lot"></div>
+    <div class="field"><label for="role">Rôle</label>
+      <select id="role" name="role"><option value="membre">Membre</option><option value="admin">Administrateur</option></select></div>
+  </div>
+  <button class="btn" type="submit">Ajouter</button>
+  <p class="hint" style="margin-top:10px">La personne pourra se connecter immédiatement en saisissant cette adresse sur la page de connexion.</p>
+</form>
+
+<section class="panel">
+  <h2>Journal d'activité <small>40 dernières actions</small></h2>
+  {% if journal %}
+  <ul class="list journal">
+    {% for j in journal %}
+    <li><strong>{{ j.name or '—' }}</strong> · {{ j.action }}{% if j.detail %} : {{ j.detail }}{% endif %}
+      <div class="m">{{ j.at|date_fr }}</div></li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="empty">Aucune activité pour l'instant.</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}
