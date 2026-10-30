@@ -72,6 +72,22 @@ def date_fr(value):
     return f"{d.day} {mois[d.month - 1]} {d.year}"
 
 
+def datetime_fr(value):
+    """Date et heure en heure de Paris (la base enregistre en UTC)."""
+    if not value:
+        return "—"
+    try:
+        from zoneinfo import ZoneInfo
+        d = datetime.fromisoformat(str(value)[:19]).replace(tzinfo=ZoneInfo("UTC"))
+        d = d.astimezone(ZoneInfo("Europe/Paris"))
+    except (ValueError, KeyError):
+        return value
+    jour = date_fr(d.isoformat())
+    if d.date() == datetime.now(ZoneInfo("Europe/Paris")).date():
+        jour = "aujourd'hui"
+    return f"{jour} à {d.hour} h {d.minute:02d}"
+
+
 def size_fr(n):
     if not n:
         return ""
@@ -92,7 +108,7 @@ def status_slug(status):
             "En cours": "encours", "Terminé": "termine"}.get(status, "idee")
 
 
-app.jinja_env.filters.update(euros=euros, date_fr=date_fr, size_fr=size_fr,
+app.jinja_env.filters.update(euros=euros, date_fr=date_fr, datetime_fr=datetime_fr, size_fr=size_fr,
                              initials=initials, status_slug=status_slug)
 
 
@@ -176,6 +192,10 @@ def open_session(user_id):
     session.permanent = True
     session["uid"] = user_id
     session["csrf"] = secrets.token_urlsafe(24)
+    db = database.get_db()
+    db.execute("UPDATE users SET last_login = datetime('now') WHERE id = ?", (user_id,))
+    database.log(user_id, "Connexion", "")
+    db.commit()
 
 
 @app.route("/connexion", methods=["GET", "POST"])
@@ -665,7 +685,7 @@ def membres():
                 flash(f"Rôle de {target['name']} mis à jour.", "ok")
         db.commit()
         return redirect(url_for("membres"))
-    users = db.execute("SELECT * FROM users ORDER BY active DESC, name").fetchall()
+    users = db.execute("SELECT * FROM users ORDER BY active DESC, name COLLATE NOCASE").fetchall()
     journal = []
     if g.user["role"] == "admin":
         journal = db.execute("""SELECT j.*, u.name FROM journal j LEFT JOIN users u ON u.id = j.user_id

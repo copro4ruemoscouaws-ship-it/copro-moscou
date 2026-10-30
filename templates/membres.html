@@ -15,6 +15,7 @@
         <div class="t">{{ u.name }}{% if u.id == user.id %} <span class="hint">· vous</span>{% endif %}</div>
         <div class="m">{{ 'Administrateur' if u.role == 'admin' else 'Membre' }}{% if u.lot %} · {{ u.lot }}{% endif %}{% if not u.active %} · sans accès{% endif %}</div>
         {% if user.role == 'admin' %}<div class="m email">{{ u.email }}</div>{% endif %}
+        <div class="m {{ 'never' if not u.last_login }}">{% if u.last_login %}Dernière connexion : {{ u.last_login|datetime_fr }}{% else %}Jamais connecté{% endif %}</div>
       </div>
       {% if user.role == 'admin' and u.id != user.id %}
       <form method="post" class="member-actions">
@@ -57,7 +58,7 @@
   <ul class="list journal">
     {% for j in journal %}
     <li><strong>{{ j.name or '—' }}</strong> · {{ j.action }}{% if j.detail %} : {{ j.detail }}{% endif %}
-      <div class="m">{{ j.at|date_fr }}</div></li>
+      <div class="m">{{ j.at|datetime_fr }}</div></li>
     {% endfor %}
   </ul>
   {% else %}<p class="empty">Aucune activité pour l'instant.</p>{% endif %}

@@ -318,3 +318,6 @@ main.login-main { max-width: none; padding: 0; }
 .code-input { font-size: 26px !important; letter-spacing: .35em; text-align: center; font-variant-numeric: tabular-nums; padding: 12px; }
 .login-alt { font-size: 13px !important; margin: 16px 0 0 !important; }
 .login strong { color: var(--ink); }
+
+/* Membres : jamais connecté */
+.member .m.never { color: var(--brass); font-weight: 600; }

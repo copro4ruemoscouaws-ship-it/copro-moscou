@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS users (
     lot         TEXT,
     role        TEXT NOT NULL DEFAULT 'membre' CHECK (role IN ('admin', 'membre')),
     active      INTEGER NOT NULL DEFAULT 1,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    last_login  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS login_tokens (
@@ -107,6 +108,8 @@ def init_db(path=None):
     conn = connect(path)
     conn.executescript(SCHEMA)
     # Mise à niveau d'une base créée avec une version précédente
+    if "last_login" not in {r["name"] for r in conn.execute("PRAGMA table_info(users)")}:
+        conn.execute("ALTER TABLE users ADD COLUMN last_login TEXT")
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(login_tokens)")}
     if "code_hash" not in cols:
         conn.execute("DELETE FROM login_tokens")
