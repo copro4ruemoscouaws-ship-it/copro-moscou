@@ -126,6 +126,35 @@ def run():
         database.index_document(conn, cur.lastrowid, title, text)
         for i in links:
             conn.execute("INSERT INTO chantier_documents VALUES (?, ?)", (ch_ids[i], cur.lastrowid))
+    # Dossiers et photos de démonstration
+    def folder(name, parent=None):
+        return conn.execute("INSERT INTO folders (name, parent_id, created_by) VALUES (?, ?, 1)", (name, parent)).lastrowid
+    f_ag = folder("Assemblées générales"); f_ag26 = folder("2026", f_ag)
+    f_contrats = folder("Contrats"); f_photos = folder("Photos"); f_facade = folder("Façade", f_photos)
+    folder("Chaufferie", f_photos); folder("Diagnostics")
+    placement = {"PV d'AG": f_ag26, "Contrat": f_contrats, "Assurance": f_contrats}
+    for cat, fid in placement.items():
+        conn.execute("UPDATE documents SET folder_id = ? WHERE category = ?", (fid, cat))
+    from PIL import Image, ImageDraw
+    from services import make_thumbnail, thumbnail_key
+    colors = [((196, 170, 132), "Facade cote rue"), ((150, 160, 172), "Balcon 2e etage"),
+              ((176, 120, 92), "Fissure pierre"), ((120, 140, 110), "Corniche"), ((200, 190, 170), "Porche")]
+    for i, (rgb, label) in enumerate(colors):
+        im = Image.new("RGB", (1600, 1200), rgb)
+        d = ImageDraw.Draw(im)
+        for k in range(0, 1600, 160):
+            d.rectangle([k, 0, k + 70, 1200], fill=tuple(max(0, c - 25) for c in rgb))
+        d.rectangle([520, 380, 1080, 820], outline=(255, 255, 255), width=14)
+        buf = io.BytesIO(); im.save(buf, "JPEG", quality=85); data = buf.getvalue()
+        fname = f"IMG_20261028_{i:02d}.jpg"
+        key = storage.save(data, fname, "image/jpeg")
+        cur = conn.execute("""INSERT INTO documents (title, category, doc_date, filename, storage_key, size, has_text,
+                              uploaded_by, mime, folder_id) VALUES (?, 'Photo', '2026-10-28', ?, ?, ?, 0, 1, 'image/jpeg', ?)""",
+                           (label.replace("cote", "côté").replace("etage", "étage"), fname, key, len(data), f_facade))
+        database.index_document(conn, cur.lastrowid, label, "")
+        conn.execute("INSERT INTO chantier_documents VALUES (?, ?)", (ch_ids[1], cur.lastrowid))
+        if i < 3:  # les autres sont créées au premier affichage, comme pour les photos déjà déposées
+            storage.put(thumbnail_key(cur.lastrowid), make_thumbnail(data), "image/jpeg")
     conn.execute("INSERT INTO journal (user_id, action, detail) VALUES (1, 'Base de démonstration créée', '')")
     conn.commit()
     conn.close()

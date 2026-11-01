@@ -50,5 +50,6 @@
   {% endif %}
   {% block content %}{% endblock %}
 </main>
+{% if user %}<script src="{{ url_for('static', filename='app.js') }}" defer></script>{% endif %}
 </body>
 </html>

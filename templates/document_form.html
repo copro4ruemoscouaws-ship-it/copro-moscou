@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Ajouter des documents{% endblock %}
 {% block content %}
-<a class="crumb" href="{{ url_for('documents') }}">← Documents</a>
+<a class="crumb" href="{{ url_for('documents', dossier=folder_pre) if folder_pre else url_for('documents') }}">← Retour</a>
 <div class="head"><h1>Ajouter des documents</h1></div>
 
 <form class="panel" method="post" enctype="multipart/form-data">
@@ -19,6 +19,13 @@
   <div class="field">
     <label for="title">Titre <span class="hint">— facultatif, sinon le nom du fichier est utilisé</span></label>
     <input id="title" type="text" name="title" placeholder="Ex. Devis ravalement — Entreprise Durand">
+  </div>
+  <div class="field">
+    <label for="folder_id">Ranger dans le dossier</label>
+    <select id="folder_id" name="folder_id">
+      <option value="">Non classés</option>
+      {% for fid, label in folder_options %}<option value="{{ fid }}" {{ 'selected' if fid == folder_pre }}>{{ label }}</option>{% endfor %}
+    </select>
   </div>
   <div class="row2">
     <div class="field">
@@ -45,7 +52,7 @@
   </div>
   <div class="actions">
     <button class="btn" type="submit">Enregistrer</button>
-    <a class="btn ghost" href="{{ url_for('documents') }}">Annuler</a>
+    <a class="btn ghost" href="{{ url_for('documents', dossier=folder_pre) if folder_pre else url_for('documents') }}">Annuler</a>
   </div>
   <p class="hint" style="margin-top:14px">Le texte des PDF et des fichiers Word est extrait automatiquement pour la recherche. Les PDF scannés et les photos ne sont recherchables que par leur titre : donnez-leur un titre clair.</p>
 </form>
@@ -58,8 +65,14 @@
       var names = Array.prototype.map.call(input.files, function (f) { return f.name; });
       list.textContent = names.length ? names.length + ' fichier(s) : ' + names.join(', ') : '';
       drop.classList.toggle('filled', names.length > 0);
+      // Uniquement des photos : catégorie « Photo » proposée automatiquement
+      var cat = document.getElementById('category');
+      var allImages = names.length && names.every(function (n) { return /\.(jpe?g|png|webp|gif)$/i.test(n); });
+      if (cat && allImages && !cat.dataset.touched) cat.value = 'Photo';
     }
     input.addEventListener('change', show);
+    var catSel = document.getElementById('category');
+    if (catSel) catSel.addEventListener('change', function () { catSel.dataset.touched = '1'; });
     ['dragenter', 'dragover'].forEach(function (e) {
       drop.addEventListener(e, function (ev) { ev.preventDefault(); drop.classList.add('over'); });
     });

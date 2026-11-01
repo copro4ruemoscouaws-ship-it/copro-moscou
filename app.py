@@ -15,7 +15,8 @@ from flask import (Flask, abort, flash, g, redirect, render_template, request,
 from markupsafe import Markup, escape
 
 import db as database
-from services import extract_text, make_storage, send_login_email
+from services import (extract_text, is_image, make_storage, make_thumbnail, send_login_email,
+                      thumbnail_key)
 
 # ------------------------------------------------------------------ Config
 
@@ -42,7 +43,7 @@ app.config.update(
 app.teardown_appcontext(database.close_db)
 storage = make_storage(app.config)
 
-ALLOWED_EXT = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".odt", ".txt", ".jpg", ".jpeg", ".png"}
+ALLOWED_EXT = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".odt", ".txt", ".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
 DOC_CATEGORIES = ["PV d'AG", "Convocation AG", "Règlement", "Contrat", "Devis", "Facture",
                   "Diagnostic", "Courrier", "Assurance", "Plan", "Photo", "Autre"]
@@ -109,7 +110,7 @@ def status_slug(status):
 
 
 app.jinja_env.filters.update(euros=euros, date_fr=date_fr, datetime_fr=datetime_fr, size_fr=size_fr,
-                             initials=initials, status_slug=status_slug)
+                             initials=initials, status_slug=status_slug, is_image=is_image)
 
 
 def parse_money(value):
@@ -325,13 +326,101 @@ def dashboard():
 
 # ------------------------------------------------------------------ Documents
 
+# ------------------------------------------------------------------ Dossiers (outils)
+
+class Folders:
+    """Arborescence des dossiers, chargée en une requête (quelques dizaines de dossiers au plus)."""
+
+    def __init__(self, db):
+        rows = db.execute("SELECT * FROM folders ORDER BY name COLLATE NOCASE").fetchall()
+        self.by_id = {r["id"]: r for r in rows}
+        self.children = {}
+        for r in rows:
+            parent = r["parent_id"] if r["parent_id"] in self.by_id else None
+            self.children.setdefault(parent, []).append(r)
+        self.direct = {r["folder_id"]: r["n"] for r in db.execute(
+            "SELECT folder_id, COUNT(*) AS n FROM documents GROUP BY folder_id")}
+
+    def get(self, fid):
+        return self.by_id.get(fid)
+
+    def path(self, fid):
+        """Liste des dossiers de la racine jusqu'à fid inclus."""
+        out, seen = [], set()
+        while fid in self.by_id and fid not in seen:
+            seen.add(fid)
+            out.append(self.by_id[fid])
+            fid = self.by_id[fid]["parent_id"]
+        return list(reversed(out))
+
+    def label(self, fid):
+        return " › ".join(f["name"] for f in self.path(fid))
+
+    def descendants(self, fid):
+        out, todo = set(), [fid]
+        while todo:
+            for child in self.children.get(todo.pop(), []):
+                if child["id"] not in out:
+                    out.add(child["id"])
+                    todo.append(child["id"])
+        return out
+
+    def total(self, fid):
+        """Nombre de documents dans le dossier et ses sous-dossiers."""
+        return sum(self.direct.get(i, 0) for i in {fid} | self.descendants(fid))
+
+    def options(self, exclude=None):
+        """(id, libellé indenté) pour une liste déroulante, dans l'ordre de l'arborescence."""
+        banned = set()
+        if exclude:
+            banned = {exclude} | self.descendants(exclude)
+        out = []
+
+        def walk(parent, depth):
+            for f in self.children.get(parent, []):
+                if f["id"] in banned:
+                    continue
+                out.append((f["id"], "\u2003" * depth + f["name"]))
+                walk(f["id"], depth + 1)
+        walk(None, 0)
+        return out
+
+
+def chantier_links(db, docs):
+    links = {}
+    if docs:
+        ids = [r["id"] for r in docs]
+        for r in db.execute(f"""
+            SELECT cd.document_id, c.id, c.title FROM chantier_documents cd
+            JOIN chantiers c ON c.id = cd.chantier_id
+            WHERE cd.document_id IN ({",".join("?" * len(ids))})""", ids):
+            links.setdefault(r["document_id"], []).append(r)
+    return links
+
+
+def form_folder_id(folders, value):
+    """Dossier choisi dans un formulaire : un id existant, ou None (Non classés)."""
+    try:
+        fid = int(value)
+    except (TypeError, ValueError):
+        return None
+    return fid if folders.get(fid) else None
+
+
+# ------------------------------------------------------------------ Documents
+
 @app.route("/documents")
 @login_required
 def documents():
     db = database.get_db()
+    folders = Folders(db)
     q = (request.args.get("q") or "").strip()
     cat = request.args.get("categorie") or ""
     chantier = request.args.get("chantier") or ""
+    current = folders.get(request.args.get("dossier", type=int))
+    current_id = current["id"] if current else None
+    searching = bool(q or cat or chantier)
+
     params, where = [], []
     if cat:
         where.append("d.category = ?")
@@ -360,26 +449,146 @@ def documents():
             except Exception:
                 results = []
     else:
+        if not searching:
+            # Navigation : uniquement le contenu direct du dossier courant (ou les « Non classés »).
+            where.append("d.folder_id IS ?")
+            params.append(current_id)
         sql = f"""
             SELECT d.*, u.name AS auteur, NULL AS extrait, NULL AS titre_hl
             FROM documents d LEFT JOIN users u ON u.id = d.uploaded_by
             {"WHERE " + " AND ".join(where) if where else ""}
-            ORDER BY COALESCE(d.doc_date, d.uploaded_at) DESC LIMIT 300
+            ORDER BY COALESCE(d.doc_date, d.uploaded_at) DESC, d.id DESC LIMIT 500
         """
         results = db.execute(sql, params).fetchall()
 
-    links = {}
-    if results:
-        ids = [r["id"] for r in results]
-        for r in db.execute(f"""
-            SELECT cd.document_id, c.id, c.title FROM chantier_documents cd
-            JOIN chantiers c ON c.id = cd.chantier_id
-            WHERE cd.document_id IN ({",".join("?" * len(ids))})""", ids):
-            links.setdefault(r["document_id"], []).append(r)
-
+    photos = [] if searching else [d for d in results if is_image(d["filename"])]
+    others = results if searching else [d for d in results if not is_image(d["filename"])]
+    subfolders = [] if searching else folders.children.get(current_id, [])
     chantiers = db.execute("SELECT id, title FROM chantiers ORDER BY title").fetchall()
-    return render_template("documents.html", results=results, q=q, cat=cat, chantier=chantier,
-                           categories=DOC_CATEGORIES, chantiers=chantiers, links=links)
+    return render_template(
+        "documents.html", results=results, photos=photos, others=others, q=q, cat=cat,
+        chantier=chantier, searching=searching, categories=DOC_CATEGORIES, chantiers=chantiers,
+        links=chantier_links(db, results), folders=folders, current=current,
+        breadcrumb=folders.path(current_id) if current else [], subfolders=subfolders,
+        unfiled_count=folders.direct.get(None, 0))
+
+
+# ------------------------------------------------------------------ Dossiers (administrateurs)
+
+def back_to_folder(fid):
+    return redirect(url_for("documents", dossier=fid) if fid else url_for("documents"))
+
+
+def clean_folder_name(folders, name, parent_id, exclude=None):
+    name = " ".join((name or "").split())[:80]
+    if not name:
+        return None, "Donnez un nom au dossier."
+    for f in folders.children.get(parent_id, []):
+        if f["id"] != exclude and f["name"].casefold() == name.casefold():
+            return None, f"Un dossier « {f['name']} » existe déjà à cet endroit."
+    return name, None
+
+
+@app.route("/dossiers/nouveau", methods=["POST"])
+@admin_required
+def folder_new():
+    db = database.get_db()
+    folders = Folders(db)
+    parent_id = form_folder_id(folders, request.form.get("parent_id"))
+    name, error = clean_folder_name(folders, request.form.get("name"), parent_id)
+    if error:
+        flash(error, "error")
+    else:
+        db.execute("INSERT INTO folders (name, parent_id, created_by) VALUES (?, ?, ?)",
+                   (name, parent_id, g.user["id"]))
+        database.log(g.user["id"], "Dossier créé",
+                     (folders.label(parent_id) + " › " if parent_id else "") + name)
+        db.commit()
+        flash(f"Dossier « {name} » créé.", "ok")
+    return back_to_folder(parent_id)
+
+
+@app.route("/dossiers/<int:fid>/renommer", methods=["POST"])
+@admin_required
+def folder_rename(fid):
+    db = database.get_db()
+    folders = Folders(db)
+    folder = folders.get(fid) or abort(404)
+    name, error = clean_folder_name(folders, request.form.get("name"), folder["parent_id"], exclude=fid)
+    if error:
+        flash(error, "error")
+    elif name != folder["name"]:
+        db.execute("UPDATE folders SET name = ? WHERE id = ?", (name, fid))
+        database.log(g.user["id"], "Dossier renommé", f"{folder['name']} → {name}")
+        db.commit()
+        flash("Dossier renommé.", "ok")
+    return back_to_folder(fid)
+
+
+@app.route("/dossiers/<int:fid>/deplacer", methods=["POST"])
+@admin_required
+def folder_move(fid):
+    db = database.get_db()
+    folders = Folders(db)
+    folder = folders.get(fid) or abort(404)
+    parent_id = form_folder_id(folders, request.form.get("parent_id"))
+    if parent_id == fid or parent_id in folders.descendants(fid):
+        flash("Un dossier ne peut pas être déplacé dans lui-même ou dans un de ses sous-dossiers.", "error")
+        return back_to_folder(fid)
+    name, error = clean_folder_name(folders, folder["name"], parent_id, exclude=fid)
+    if error:
+        flash(error, "error")
+        return back_to_folder(fid)
+    db.execute("UPDATE folders SET parent_id = ? WHERE id = ?", (parent_id, fid))
+    database.log(g.user["id"], "Dossier déplacé",
+                 f"{folder['name']} → {folders.label(parent_id) or 'Documents'}")
+    db.commit()
+    flash("Dossier déplacé.", "ok")
+    return back_to_folder(fid)
+
+
+@app.route("/dossiers/<int:fid>/supprimer", methods=["POST"])
+@admin_required
+def folder_delete(fid):
+    """Supprime le dossier seulement : documents et sous-dossiers remontent d'un niveau."""
+    db = database.get_db()
+    folders = Folders(db)
+    folder = folders.get(fid) or abort(404)
+    parent_id = folder["parent_id"]
+    taken = {f["name"].casefold() for f in folders.children.get(parent_id, []) if f["id"] != fid}
+    for child in folders.children.get(fid, []):
+        new_name = child["name"]
+        if new_name.casefold() in taken:
+            new_name = f"{child['name']} ({folder['name']})"
+        taken.add(new_name.casefold())
+        db.execute("UPDATE folders SET parent_id = ?, name = ? WHERE id = ?", (parent_id, new_name, child["id"]))
+    moved = db.execute("UPDATE documents SET folder_id = ? WHERE folder_id = ?", (parent_id, fid)).rowcount
+    db.execute("DELETE FROM folders WHERE id = ?", (fid,))
+    database.log(g.user["id"], "Dossier supprimé", f"{folders.label(fid)} ({moved} document(s) déplacé(s))")
+    db.commit()
+    where = f"« {folders.label(parent_id)} »" if parent_id else "« Non classés »"
+    flash(f"Dossier « {folder['name']} » supprimé. Son contenu a été déplacé dans {where}.", "ok")
+    return back_to_folder(parent_id)
+
+
+@app.route("/documents/deplacer", methods=["POST"])
+@login_required
+def documents_move():
+    """Déplacer plusieurs documents d'un coup (membres et administrateurs)."""
+    db = database.get_db()
+    folders = Folders(db)
+    ids = [int(x) for x in request.form.getlist("doc_ids") if x.isdigit()]
+    target = form_folder_id(folders, request.form.get("target_id"))
+    back = form_folder_id(folders, request.form.get("from_id"))
+    if not ids:
+        flash("Cochez d'abord les documents à déplacer.", "error")
+        return back_to_folder(back)
+    db.execute(f"UPDATE documents SET folder_id = ? WHERE id IN ({','.join('?' * len(ids))})", [target] + ids)
+    dest = folders.label(target) if target else "Non classés"
+    database.log(g.user["id"], "Documents déplacés", f"{len(ids)} vers {dest}")
+    db.commit()
+    flash(f"{len(ids)} document(s) déplacé(s) vers « {dest} ».", "ok")
+    return back_to_folder(back)
 
 
 def highlight(text):
@@ -399,7 +608,12 @@ def document_new():
     db = database.get_db()
     chantiers = db.execute("SELECT id, title, status FROM chantiers ORDER BY status = 'Terminé', title").fetchall()
     preselect = request.args.get("chantier", type=int)
+    folders = Folders(db)
+    folder_pre = form_folder_id(folders, request.args.get("dossier"))
+    form_ctx = dict(chantiers=chantiers, categories=DOC_CATEGORIES, preselect=preselect,
+                    folder_options=folders.options(), folder_pre=folder_pre)
     if request.method == "POST":
+        folder_id = form_folder_id(folders, request.form.get("folder_id"))
         files = [f for f in request.files.getlist("fichiers") if f and f.filename]
         category = request.form.get("category") or "Autre"
         doc_date = request.form.get("doc_date") or None
@@ -407,8 +621,7 @@ def document_new():
         linked = [int(x) for x in request.form.getlist("chantiers") if x.isdigit()]
         if not files:
             flash("Choisissez au moins un fichier.", "error")
-            return render_template("document_form.html", chantiers=chantiers,
-                                   categories=DOC_CATEGORIES, preselect=preselect)
+            return render_template("document_form.html", **form_ctx)
         created = []
         for f in files:
             ext = os.path.splitext(f.filename)[1].lower()
@@ -424,10 +637,16 @@ def document_new():
             key = storage.save(data, f.filename, mime)
             cur = db.execute("""
                 INSERT INTO documents (title, category, doc_date, filename, storage_key, mime, size,
-                                       has_text, uploaded_by)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (title, category, doc_date, f.filename, key, mime, len(data), 1 if text else 0, g.user["id"]))
+                                       has_text, uploaded_by, folder_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (title, category, doc_date, f.filename, key, mime, len(data), 1 if text else 0, g.user["id"],
+                 folder_id))
             doc_id = cur.lastrowid
+            if is_image(f.filename):
+                try:  # miniature tout de suite, pour un affichage rapide de la mosaïque
+                    storage.put(thumbnail_key(doc_id), make_thumbnail(data), "image/jpeg")
+                except Exception as exc:
+                    print(f"[vignette] {f.filename}: {exc}")
             database.index_document(db, doc_id, title, text)
             for cid in linked:
                 db.execute("INSERT OR IGNORE INTO chantier_documents VALUES (?, ?)", (cid, doc_id))
@@ -436,16 +655,18 @@ def document_new():
         db.commit()
         if created:
             sans_texte = [t for (_, t, has, ext) in created if not has and ext in (".pdf", ".docx")]
+            preselect_chantier = request.args.get("chantier", type=int)
             msg = f"{len(created)} document(s) ajouté(s)."
             if sans_texte:
                 msg += " Aucun texte lisible dans : " + ", ".join(sans_texte) + \
                        " (probablement un scan : seul le titre sera recherchable)."
             flash(msg, "ok")
-            if len(created) == 1:
+            if len(created) == 1 and not is_image(files[0].filename):
                 return redirect(url_for("document_detail", doc_id=created[0][0]))
-        return redirect(url_for("documents"))
-    return render_template("document_form.html", chantiers=chantiers,
-                           categories=DOC_CATEGORIES, preselect=preselect)
+            if preselect_chantier and preselect_chantier in linked:
+                return redirect(url_for("chantier_detail", cid=preselect_chantier))
+        return back_to_folder(folder_id)
+    return render_template("document_form.html", **form_ctx)
 
 
 def get_document(doc_id):
@@ -467,8 +688,9 @@ def document_detail(doc_id):
         category = request.form.get("category") or doc["category"]
         doc_date = request.form.get("doc_date") or None
         linked = {int(x) for x in request.form.getlist("chantiers") if x.isdigit()}
-        db.execute("UPDATE documents SET title = ?, category = ?, doc_date = ? WHERE id = ?",
-                   (title, category, doc_date, doc_id))
+        folder_id = form_folder_id(Folders(db), request.form.get("folder_id"))
+        db.execute("UPDATE documents SET title = ?, category = ?, doc_date = ?, folder_id = ? WHERE id = ?",
+                   (title, category, doc_date, folder_id, doc_id))
         body = db.execute("SELECT body FROM documents_fts WHERE rowid = ?", (doc_id,)).fetchone()
         database.index_document(db, doc_id, title, body["body"] if body else "")
         db.execute("DELETE FROM chantier_documents WHERE document_id = ?", (doc_id,))
@@ -484,8 +706,10 @@ def document_detail(doc_id):
         "SELECT chantier_id FROM chantier_documents WHERE document_id = ?", (doc_id,))}
     body = db.execute("SELECT body FROM documents_fts WHERE rowid = ?", (doc_id,)).fetchone()
     apercu = (body["body"] if body else "")[:3000]
+    folders = Folders(db)
     return render_template("document_detail.html", doc=doc, chantiers=chantiers, linked=linked,
-                           categories=DOC_CATEGORIES, apercu=apercu)
+                           categories=DOC_CATEGORIES, apercu=apercu, folder_options=folders.options(),
+                           breadcrumb=folders.path(doc["folder_id"]) if doc["folder_id"] else [])
 
 
 @app.route("/documents/<int:doc_id>/fichier")
@@ -499,18 +723,52 @@ def document_file(doc_id):
                      download_name=doc["filename"], as_attachment=request.args.get("dl") == "1")
 
 
+PLACEHOLDER_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" fill="#efe7d6"/>'
+    '<path d="M30 82l20-24 14 16 10-12 16 20z" fill="#b1863f" opacity=".55"/><circle cx="78" cy="42" r="8" '
+    'fill="#b1863f" opacity=".55"/></svg>')
+
+
+@app.route("/documents/<int:doc_id>/vignette")
+@login_required
+def document_thumbnail(doc_id):
+    """Miniature d'une photo, créée au premier affichage puis gardée en cache dans le stockage."""
+    doc = get_document(doc_id)
+    if not is_image(doc["filename"]):
+        abort(404)
+    data = storage.get(thumbnail_key(doc_id))
+    if data is None:
+        original = storage.get(doc["storage_key"])
+        try:
+            data = make_thumbnail(original)
+            storage.put(thumbnail_key(doc_id), data, "image/jpeg")
+        except Exception as exc:
+            print(f"[vignette] document {doc_id}: {exc}")
+            resp = app.response_class(PLACEHOLDER_SVG, mimetype="image/svg+xml")
+            resp.headers["Cache-Control"] = "private, max-age=300"
+            return resp
+    resp = app.response_class(data, mimetype="image/jpeg")
+    resp.headers["Cache-Control"] = "private, max-age=604800"
+    return resp
+
+
 @app.route("/documents/<int:doc_id>/supprimer", methods=["POST"])
 @admin_required
 def document_delete(doc_id):
     db = database.get_db()
     doc = get_document(doc_id)
     storage.delete(doc["storage_key"])
+    if is_image(doc["filename"]):
+        try:
+            storage.delete(thumbnail_key(doc_id))
+        except Exception:
+            pass
     database.unindex_document(db, doc_id)
     db.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
     database.log(g.user["id"], "Document supprimé", doc["title"])
     db.commit()
     flash(f"« {doc['title']} » supprimé.", "ok")
-    return redirect(url_for("documents"))
+    return back_to_folder(doc["folder_id"] if doc["folder_id"] else None)
 
 
 # ------------------------------------------------------------------ Chantiers
@@ -580,11 +838,13 @@ def chantier_detail(cid):
     docs = db.execute("""
         SELECT d.* FROM documents d JOIN chantier_documents cd ON cd.document_id = d.id
         WHERE cd.chantier_id = ? ORDER BY COALESCE(d.doc_date, d.uploaded_at) DESC""", (cid,)).fetchall()
+    photos = [d for d in docs if is_image(d["filename"])]
+    docs = [d for d in docs if not is_image(d["filename"])]
     autres = db.execute("""
         SELECT id, title, category FROM documents
         WHERE id NOT IN (SELECT document_id FROM chantier_documents WHERE chantier_id = ?)
         ORDER BY uploaded_at DESC LIMIT 200""", (cid,)).fetchall()
-    return render_template("chantier_detail.html", c=c, docs=docs, autres=autres)
+    return render_template("chantier_detail.html", c=c, docs=docs, photos=photos, autres=autres)
 
 
 @app.route("/chantiers/<int:cid>/modifier", methods=["GET", "POST"])

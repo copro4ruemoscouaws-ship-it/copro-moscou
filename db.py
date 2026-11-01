@@ -31,6 +31,15 @@ CREATE TABLE IF NOT EXISTS login_tokens (
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Dossiers et sous-dossiers (créés par les administrateurs)
+CREATE TABLE IF NOT EXISTS folders (
+    id          INTEGER PRIMARY KEY,
+    name        TEXT NOT NULL,
+    parent_id   INTEGER REFERENCES folders(id) ON DELETE SET NULL,
+    created_by  INTEGER REFERENCES users(id),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS documents (
     id            INTEGER PRIMARY KEY,
     title         TEXT NOT NULL,
@@ -42,7 +51,8 @@ CREATE TABLE IF NOT EXISTS documents (
     size          INTEGER,
     has_text      INTEGER NOT NULL DEFAULT 0,
     uploaded_by   INTEGER REFERENCES users(id),
-    uploaded_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    uploaded_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    folder_id     INTEGER REFERENCES folders(id) ON DELETE SET NULL
 );
 
 -- Index plein texte : titre + contenu extrait du PDF / Word.
@@ -116,6 +126,11 @@ def init_db(path=None):
         conn.execute("ALTER TABLE login_tokens ADD COLUMN code_hash TEXT")
         conn.execute("ALTER TABLE login_tokens ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
         conn.execute("ALTER TABLE login_tokens ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
+    # Dossiers : les documents existants restent « Non classés » (folder_id vide), rien n'est perdu.
+    if "folder_id" not in {r["name"] for r in conn.execute("PRAGMA table_info(documents)")}:
+        conn.execute("ALTER TABLE documents ADD COLUMN folder_id INTEGER REFERENCES folders(id) ON DELETE SET NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_folder ON documents(folder_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_id)")
     conn.commit()
     conn.close()
 

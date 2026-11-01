@@ -1,14 +1,42 @@
 {% extends "base.html" %}
-{% block title %}Documents{% endblock %}
+{% from "_macros.html" import photo_grid, doc_row %}
+{% block title %}{{ current.name if current else 'Documents' }}{% endblock %}
 {% block content %}
+{% set cur_id = current.id if current else none %}
+{% set is_admin = user.role == 'admin' %}
+
+{% if current %}
+<nav class="crumbs" aria-label="Emplacement">
+  <a href="{{ url_for('documents') }}">Documents</a>
+  {% for f in breadcrumb[:-1] %}<span>›</span><a href="{{ url_for('documents', dossier=f.id) }}">{{ f.name }}</a>{% endfor %}
+</nav>
+{% endif %}
+
 <div class="head">
-  <h1>Documents</h1>
-  <a class="btn" href="{{ url_for('document_new', chantier=chantier or None) }}">Ajouter des documents</a>
+  <h1>{% if current %}📁 {{ current.name }}{% else %}Documents{% endif %}</h1>
+  <div class="actions" style="margin:0">
+    {% if is_admin and not searching %}
+    <button class="btn ghost" type="button" data-toggle="new-folder">Nouveau dossier</button>
+    {% endif %}
+    <a class="btn" href="{{ url_for('document_new', dossier=cur_id, chantier=chantier or None) }}">Ajouter des documents</a>
+  </div>
 </div>
 
-<form method="get" role="search">
+{% if is_admin and not searching %}
+<form class="panel inline-form" id="new-folder" method="post" action="{{ url_for('folder_new') }}" hidden>
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <input type="hidden" name="parent_id" value="{{ cur_id or '' }}">
+  <label for="folder-name">{% if current %}Nouveau sous-dossier dans « {{ current.name }} »{% else %}Nouveau dossier{% endif %}</label>
+  <div class="row-inline">
+    <input id="folder-name" type="text" name="name" maxlength="80" required placeholder="Ex. Assemblées générales, Contrats, Photos façade…">
+    <button class="btn" type="submit">Créer</button>
+  </div>
+</form>
+{% endif %}
+
+<form method="get" action="{{ url_for('documents') }}" role="search">
   <div class="searchbar">
-    <input type="search" name="q" value="{{ q }}" placeholder="Mot-clé, nom d'entreprise, montant… (cherche aussi dans le contenu)" aria-label="Rechercher">
+    <input type="search" name="q" value="{{ q }}" placeholder="Chercher dans tous les documents (titre et contenu)…" aria-label="Rechercher">
     <button class="btn" type="submit">Rechercher</button>
   </div>
   <div class="filters">
@@ -20,37 +48,112 @@
       <option value="">Tous les chantiers</option>
       {% for c in chantiers %}<option value="{{ c.id }}" {{ 'selected' if c.id|string == chantier }}>{{ c.title }}</option>{% endfor %}
     </select>
-    {% if q or cat or chantier %}<a class="btn ghost small" href="{{ url_for('documents') }}">Effacer les filtres</a>{% endif %}
+    {% if searching %}<a class="btn ghost small" href="{{ url_for('documents') }}">Revenir aux dossiers</a>{% endif %}
   </div>
 </form>
 
-<section class="panel">
-  <div class="count">
-    {% if q %}{{ results|length }} résultat{{ 's' if results|length > 1 }} pour « {{ q }} »
-    {% else %}{{ results|length }} document{{ 's' if results|length > 1 }}{% endif %}
-  </div>
-  {% if results %}
-  <ul class="list">
-    {% for d in results %}
-    <li class="item">
-      <div class="ext">{{ d.filename.rsplit('.', 1)[-1]|upper if '.' in d.filename else 'DOC' }}</div>
-      <div class="main">
-        <a class="t" href="{{ url_for('document_detail', doc_id=d.id) }}">{% if d.titre_hl %}{{ d.titre_hl|hl }}{% else %}{{ d.title }}{% endif %}</a>
-        <div class="m">{{ d.category }} · {{ (d.doc_date or d.uploaded_at)|date_fr }}{% if d.auteur %} · déposé par {{ d.auteur }}{% endif %}{% if not d.has_text and d.filename.lower().endswith(('.pdf','.docx')) %} · contenu non lisible (scan){% endif %}</div>
-        {% if d.extrait and '[[' in d.extrait %}<div class="snip">{{ d.extrait|hl }}</div>{% endif %}
-        {% if links.get(d.id) %}
-        <div class="tags">
-          {% for c in links[d.id] %}<a class="tag chantier" href="{{ url_for('chantier_detail', cid=c.id) }}">{{ c.title }}</a>{% endfor %}
-        </div>
-        {% endif %}
-      </div>
-    </li>
+{% if searching %}
+  {# ---------- Résultats de recherche : tous dossiers confondus ---------- #}
+  <section class="panel">
+    <div class="count">
+      {% if q %}{{ results|length }} résultat{{ 's' if results|length > 1 }} pour « {{ q }} »
+      {% else %}{{ results|length }} document{{ 's' if results|length > 1 }}{% endif %}
+    </div>
+    {% if results %}
+    <ul class="list">{% for d in results %}{{ doc_row(d, links, folders, show_folder=true) }}{% endfor %}</ul>
+    {% elif q %}
+      <p class="empty">Aucun document ne contient ces mots. Essayez un mot plus court (« chauff » trouve chauffage et chaufferie) ou retirez un filtre.</p>
+    {% else %}
+      <p class="empty">Aucun document ne correspond à ces filtres.</p>
+    {% endif %}
+  </section>
+
+{% else %}
+  {# ---------- Navigation dans les dossiers ---------- #}
+  {% if subfolders %}
+  <section class="folders" aria-label="{{ 'Sous-dossiers' if current else 'Dossiers' }}">
+    {% for f in subfolders %}
+    {% set n = folders.total(f.id) %}{% set subs = folders.children.get(f.id, [])|length %}
+    <a class="folder-card" href="{{ url_for('documents', dossier=f.id) }}">
+      <span class="folder-icon" aria-hidden="true"></span>
+      <span class="folder-name">{{ f.name }}</span>
+      <span class="folder-meta">{% if n %}{{ n }} document{{ 's' if n > 1 }}{% else %}Vide{% endif %}{% if subs %} · {{ subs }} sous-dossier{{ 's' if subs > 1 }}{% endif %}</span>
+    </a>
     {% endfor %}
-  </ul>
-  {% elif q %}
-    <p class="empty">Aucun document ne contient ces mots. Essayez un mot plus court (« chauff » trouve chauffage et chaufferie) ou retirez un filtre.</p>
-  {% else %}
-    <p class="empty">Aucun document. <a href="{{ url_for('document_new') }}">Déposez les premiers fichiers</a> : PV d'AG, devis, contrats…</p>
+  </section>
   {% endif %}
-</section>
+
+  {% if not current and subfolders and results %}
+  <h2 class="section-title">Non classés <small>{{ results|length }} document{{ 's' if results|length > 1 }} à ranger dans un dossier</small></h2>
+  {% endif %}
+
+  {% if photos %}
+  <section class="panel">
+    <h2>Photos <small>{{ photos|length }}</small></h2>
+    {{ photo_grid(photos, selectable=true) }}
+  </section>
+  {% endif %}
+
+  {% if others %}
+  <section class="panel">
+    {% if photos %}<h2>Documents <small>{{ others|length }}</small></h2>{% endif %}
+    <ul class="list">{% for d in others %}{{ doc_row(d, links, selectable=true) }}{% endfor %}</ul>
+  </section>
+  {% endif %}
+
+  {% if results %}
+  <form class="movebar" id="move-form" method="post" action="{{ url_for('documents_move') }}" data-movebar>
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <input type="hidden" name="from_id" value="{{ cur_id or '' }}">
+    <span class="movebar-count" data-movecount>Cochez des documents pour les déplacer</span>
+    <select name="target_id" aria-label="Dossier de destination">
+      <option value="">Non classés</option>
+      {% for fid, label in folders.options() %}<option value="{{ fid }}" {{ 'disabled' if fid == cur_id }}>{{ label }}</option>{% endfor %}
+    </select>
+    <button class="btn small" type="submit">Déplacer</button>
+  </form>
+  {% endif %}
+
+  {% if not results and not subfolders %}
+  <section class="panel">
+    {% if current %}
+      <p class="empty">Ce dossier est vide. <a href="{{ url_for('document_new', dossier=cur_id) }}">Ajoutez des documents</a>{% if is_admin %} ou créez un sous-dossier{% endif %}.</p>
+    {% else %}
+      <p class="empty">Aucun document. <a href="{{ url_for('document_new') }}">Déposez les premiers fichiers</a> : PV d'AG, devis, contrats, photos…</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if current and is_admin %}
+  <details class="panel manage">
+    <summary>Gérer le dossier « {{ current.name }} »</summary>
+    <form method="post" action="{{ url_for('folder_rename', fid=current.id) }}" class="field">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label for="rename">Renommer</label>
+      <div class="row-inline">
+        <input id="rename" type="text" name="name" value="{{ current.name }}" maxlength="80" required>
+        <button class="btn ghost" type="submit">Renommer</button>
+      </div>
+    </form>
+    <form method="post" action="{{ url_for('folder_move', fid=current.id) }}" class="field">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label for="move-to">Déplacer dans</label>
+      <div class="row-inline">
+        <select id="move-to" name="parent_id">
+          <option value="" {{ 'selected' if not current.parent_id }}>Documents (premier niveau)</option>
+          {% for fid, label in folders.options(exclude=current.id) %}<option value="{{ fid }}" {{ 'selected' if fid == current.parent_id }}>{{ label }}</option>{% endfor %}
+        </select>
+        <button class="btn ghost" type="submit">Déplacer</button>
+      </div>
+    </form>
+    <form method="post" action="{{ url_for('folder_delete', fid=current.id) }}"
+          data-msg="Supprimer le dossier « {{ current.name }} » ? Les documents et sous-dossiers qu'il contient ne sont pas supprimés : ils remontent d'un niveau."
+          onsubmit="return confirm(this.dataset.msg)">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="btn danger small" type="submit">Supprimer le dossier</button>
+      <p class="hint" style="margin:8px 0 0">Les documents ne sont jamais supprimés avec le dossier : ils remontent {% if current.parent_id %}dans « {{ folders.get(current.parent_id).name }} »{% else %}dans « Non classés »{% endif %}.</p>
+    </form>
+  </details>
+  {% endif %}
+{% endif %}
 {% endblock %}

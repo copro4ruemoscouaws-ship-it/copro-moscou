@@ -1,0 +1,47 @@
+{# Éléments réutilisés : mosaïque de photos et ligne de document #}
+
+{% macro photo_grid(photos, selectable=false) %}
+<div class="photos" data-gallery>
+  {% for d in photos %}
+  <figure class="photo">
+    {% if selectable %}
+    <label class="pick" title="Sélectionner pour déplacer">
+      <input type="checkbox" name="doc_ids" value="{{ d.id }}" form="move-form" aria-label="Sélectionner {{ d.title }}">
+    </label>
+    {% endif %}
+    <a class="thumb" href="{{ url_for('document_detail', doc_id=d.id) }}"
+       data-full="{{ url_for('document_file', doc_id=d.id) }}" data-title="{{ d.title }}"
+       data-detail="{{ url_for('document_detail', doc_id=d.id) }}">
+      <img src="{{ url_for('document_thumbnail', doc_id=d.id) }}" alt="{{ d.title }}" loading="lazy" decoding="async">
+    </a>
+    <figcaption>{{ d.title }}</figcaption>
+  </figure>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{% macro doc_row(d, links={}, folders=none, selectable=false, show_folder=false) %}
+<li class="item">
+  {% if selectable %}
+  <input class="pick-row" type="checkbox" name="doc_ids" value="{{ d.id }}" form="move-form" aria-label="Sélectionner {{ d.title }}">
+  {% endif %}
+  <div class="ext">{{ d.filename.rsplit('.', 1)[-1]|upper if '.' in d.filename else 'DOC' }}</div>
+  <div class="main">
+    <a class="t" href="{{ url_for('document_detail', doc_id=d.id) }}">{% if d.titre_hl %}{{ d.titre_hl|hl }}{% else %}{{ d.title }}{% endif %}</a>
+    <div class="m">{{ d.category }} · {{ (d.doc_date or d.uploaded_at)|date_fr }}{% if d.auteur %} · déposé par {{ d.auteur }}{% endif %}{% if not d.has_text and d.filename.lower().endswith(('.pdf','.docx')) %} · contenu non lisible (scan){% endif %}</div>
+    {% if d.extrait and '[[' in d.extrait %}<div class="snip">{{ d.extrait|hl }}</div>{% endif %}
+    {% if (show_folder and folders) or links.get(d.id) %}
+    <div class="tags">
+      {% if show_folder and folders %}
+        {% if d.folder_id and folders.get(d.folder_id) %}
+        <a class="tag folder" href="{{ url_for('documents', dossier=d.folder_id) }}">📁 {{ folders.label(d.folder_id) }}</a>
+        {% else %}
+        <a class="tag folder" href="{{ url_for('documents') }}">📁 Non classés</a>
+        {% endif %}
+      {% endif %}
+      {% for c in links.get(d.id, []) %}<a class="tag chantier" href="{{ url_for('chantier_detail', cid=c.id) }}">{{ c.title }}</a>{% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</li>
+{% endmacro %}

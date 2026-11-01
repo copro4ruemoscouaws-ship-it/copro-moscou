@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import photo_grid %}
 {% block title %}{{ c.title }}{% endblock %}
 {% block content %}
 <a class="crumb" href="{{ url_for('chantiers') }}">← Chantiers</a>
@@ -35,7 +36,8 @@
         </li>
         {% endfor %}
       </ul>
-      {% else %}<p class="empty">Aucun document lié : devis, PV d'AG, factures, diagnostics…</p>{% endif %}
+      {% elif not photos %}<p class="empty">Aucun document lié : devis, PV d'AG, factures, diagnostics, photos…</p>
+      {% else %}<p class="empty">Aucun autre document que les photos ci-dessous.</p>{% endif %}
 
       {% if autres %}
       <form method="post" action="{{ url_for('chantier_link', cid=c.id) }}" style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
@@ -47,6 +49,13 @@
       </form>
       {% endif %}
     </section>
+
+    {% if photos %}
+    <section class="panel">
+      <h2>Photos du chantier <small>{{ photos|length }}</small></h2>
+      {{ photo_grid(photos) }}
+    </section>
+    {% endif %}
 
     {% if c.description %}
     <section class="panel">

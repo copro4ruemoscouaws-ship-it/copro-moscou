@@ -6,7 +6,9 @@ Site privé pour les 18 membres du conseil syndical : documents avec recherche d
 
 - **Téléphone, tablette et ordinateur** : l'interface s'adapte à la taille de l'écran (menu compact, boutons faciles à toucher, chantiers sur 1, 2 ou 5 colonnes). Depuis un téléphone, on peut déposer une photo d'un document prise sur le moment. Le site peut être ajouté à l'écran d'accueil du téléphone comme une application (icône « 4 »).
 
-- **Documents** : dépôt de plusieurs fichiers à la fois (PDF, Word, Excel, images), catégorie, date, liaison à un ou plusieurs chantiers.
+- **Documents** : dépôt de plusieurs fichiers à la fois (PDF, Word, Excel, photos), catégorie, date, liaison à un ou plusieurs chantiers.
+- **Dossiers et sous-dossiers** : les administrateurs créent, renomment, déplacent et suppriment les dossiers (supprimer un dossier ne supprime jamais les documents : ils remontent d'un niveau). Tous les membres choisissent le dossier au dépôt et peuvent déplacer des documents, un par un depuis leur fiche ou plusieurs à la fois en les cochant. Les documents sans dossier apparaissent dans « Non classés ».
+- **Photos** : affichage en vignettes dans chaque dossier et chaque chantier, visionneuse plein écran (flèches du clavier, ou glisser du doigt sur téléphone). Les miniatures sont créées au dépôt, ou au premier affichage pour les photos plus anciennes, et gardées dans S3 (`documents/vignettes/`).
 - **Recherche** : dans le titre et le contenu des PDF/Word, avec extraits surlignés. Insensible aux accents (« electricite » trouve « électricité »), recherche par début de mot (« chauff » trouve chauffage, chaufferie), expression exacte entre guillemets (`"article 25"`). Filtres par catégorie et par chantier.
 - **Chantiers** : catégorie, étape (Idée → Devis en cours → Voté en AG → En cours → Terminé), budget prévu et engagé, échéance, responsable, notes de suivi, documents liés.
 - **Tableau de bord** : nombre de chantiers par étape, chantiers actifs avec avancement budgétaire, budget global, prochaines échéances (en rouge si dépassées), derniers documents.
@@ -106,12 +108,24 @@ Ensuite, tout se fait depuis le site : page **Membres** → ajouter les 17 autre
 - Le lendemain, vérifier la présence d'un fichier dans `s3://…/sauvegardes/`.
 
 ## Mises à jour du site
+
+Le code de référence est sur GitHub (dépôt privé `copro4ruemoscouaws-ship-it/copro-moscou`). Pour installer une nouvelle version sur le serveur :
+
+1. Déposer l'archive `copro-moscou.zip` à la racine du bucket S3, puis créer un lien présigné d'une heure (Actions → Partager avec une URL présignée).
+2. Dans le terminal du serveur (Lightsail → Connect using SSH) :
 ```bash
-scp -r copro-moscou ubuntu@IP_DU_SERVEUR:~
-ssh ubuntu@IP_DU_SERVEUR
-sudo rsync -a --exclude data ~/copro-moscou/ /srv/copro/app/ && sudo chown -R copro:copro /srv/copro/app
-sudo systemctl restart copro
+# Sauvegarde de la base avant toute mise à jour
+sudo sqlite3 /srv/copro/data/copro.db ".backup '/srv/copro/data/copro-avant-maj.db'"
+# Récupérer et installer la nouvelle version
+cd ~ && curl -fSL -o copro.zip 'LIEN_PRÉSIGNÉ'
+rm -rf ~/copro-moscou && unzip -q -o ~/copro.zip -d ~
+sudo cp -r ~/copro-moscou/. /srv/copro/app/ && sudo chown -R copro:copro /srv/copro/app
+sudo /srv/copro/venv/bin/pip install -q -r /srv/copro/app/requirements.txt
+sudo systemctl restart copro && systemctl is-active copro
 ```
+3. Supprimer l'archive du bucket.
+
+La base de données est mise à niveau automatiquement au redémarrage, sans perte : les nouvelles colonnes et tables sont ajoutées, rien n'est effacé.
 
 ## Restaurer une sauvegarde
 Télécharger le fichier voulu depuis la console S3 (dossier `sauvegardes/`), l'envoyer sur le serveur avec `scp`, puis :
@@ -135,7 +149,7 @@ sudo systemctl start copro
 app.py               Application (pages, connexion, droits)
 db.py                Schéma SQLite et recherche plein texte
 services.py          Extraction PDF/Word, stockage disque ou S3, emails SES
-templates/, static/  Interface
+templates/, static/  Interface (app.js : visionneuse photos, sélection multiple)
 demo_data.py         Données de démonstration
 deploy/              Installation serveur, nginx, systemd, sauvegarde, droits IAM
 ```

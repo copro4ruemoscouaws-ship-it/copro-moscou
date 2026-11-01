@@ -60,6 +60,19 @@ class LocalStorage:
     def path(self, key):
         return os.path.join(self.root, key)
 
+    def get(self, key):
+        """Contenu d'un fichier, ou None s'il n'existe pas."""
+        try:
+            with open(self.path(key), "rb") as f:
+                return f.read()
+        except (FileNotFoundError, IsADirectoryError):
+            return None
+
+    def put(self, key, data: bytes, mime: str):
+        os.makedirs(os.path.dirname(self.path(key)) or self.root, exist_ok=True)
+        with open(self.path(key), "wb") as f:
+            f.write(data)
+
     def delete(self, key):
         try:
             os.remove(self.path(key))
@@ -90,6 +103,23 @@ class S3Storage:
     def delete(self, key):
         self.s3.delete_object(Bucket=self.bucket, Key=key)
 
+    def get(self, key):
+        """Contenu d'un objet, ou None s'il n'existe pas.
+
+        Sans le droit ListBucket, S3 répond « accès refusé » plutôt que « introuvable »
+        pour un objet absent : toute erreur est donc traitée comme une absence.
+        """
+        from botocore.exceptions import ClientError
+        try:
+            return self.s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+        except ClientError:
+            return None
+
+    def put(self, key, data: bytes, mime: str):
+        self.s3.put_object(Bucket=self.bucket, Key=key, Body=data,
+                           ContentType=mime or "application/octet-stream",
+                           ServerSideEncryption="AES256")
+
     def download_url(self, key, filename, as_attachment=False):
         return self.s3.generate_presigned_url(
             "get_object",
@@ -97,6 +127,36 @@ class S3Storage:
                     "ResponseContentDisposition": content_disposition(filename, as_attachment)},
             ExpiresIn=300,
         )
+
+
+IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+
+def is_image(filename):
+    return os.path.splitext((filename or "").lower())[1] in IMAGE_EXT
+
+
+def thumbnail_key(doc_id):
+    # Sous documents/ : couvert par la politique IAM de copro-app, sans droit supplémentaire.
+    return f"documents/vignettes/{doc_id}.jpg"
+
+
+def make_thumbnail(data: bytes, size=480) -> bytes:
+    """Miniature JPEG carrée-ish, orientée correctement (photos de téléphone)."""
+    from PIL import Image, ImageOps
+    with Image.open(io.BytesIO(data)) as img:
+        if img.format == "JPEG":
+            img.draft("RGB", (size * 2, size * 2))   # décode en basse résolution : peu de mémoire
+        img = ImageOps.exif_transpose(img)
+        if img.mode not in ("RGB", "L"):
+            background = Image.new("RGB", img.size, (248, 244, 234))
+            rgba = img.convert("RGBA")
+            background.paste(rgba, mask=rgba.split()[-1])
+            img = background
+        img.thumbnail((size, size))
+        out = io.BytesIO()
+        img.convert("RGB").save(out, "JPEG", quality=80, optimize=True)
+        return out.getvalue()
 
 
 def make_storage(config):
