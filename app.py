@@ -146,10 +146,25 @@ def load_user_and_csrf():
             abort(400, "Jeton de sécurité invalide, rechargez la page.")
 
 
+def _asset_version():
+    """Empreinte des fichiers CSS/JS : change à chaque mise à jour, le navigateur recharge alors."""
+    digest = hashlib.sha256()
+    for name in ("style.css", "app.js"):
+        try:
+            with open(os.path.join(BASE, "static", name), "rb") as f:
+                digest.update(f.read())
+        except OSError:
+            pass
+    return digest.hexdigest()[:10]
+
+
+ASSET_VERSION = _asset_version()
+
+
 @app.context_processor
 def inject_globals():
     return {"csrf_token": session.get("csrf", ""), "user": g.get("user"),
-            "STATUSES": STATUSES, "today": date.today().isoformat()}
+            "STATUSES": STATUSES, "today": date.today().isoformat(), "asset_v": ASSET_VERSION}
 
 
 @app.after_request
